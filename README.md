@@ -1,5 +1,6 @@
+
 # wikipedia-article-search
-An implementation for solving the use case of obtaining a word count out of Wikipedia articles. It uses a local ES cluster within one docker container to store the wikipedia articles and process them there.
+An implementation for solving the use case of obtaining a word count out of Wikipedia articles. It uses a local ES cluster within one docker container to store the wikipedia articles and process them there. The docker image used is obtained from [sebp](https://hub.docker.com/r/sebp/elk/) and the latest image version is used.
 
 # Requirements
  - Docker.
