@@ -1,7 +1,9 @@
 import requests
 import json
+import sys
+import argparse
 from datetime import datetime
-from elasticsearch import Elasticsearch
+from elasticsearch import Elasticsearch, BadRequestError
 
 
 DEBUG_MODE = False
@@ -62,21 +64,24 @@ def load_n_wikipedia_articles(index_name: str, number_articles:int=ARTICLES_NUMB
 
     content_id = article["pageid"]
     title =  article["title"]
-    print(title)
+    if DEBUG_MODE: print(title)
     content = article["revisions"][0]["slots"]["main"]["content"]
     
     es = Elasticsearch(ES_CLUSTER_HOST)
     # Datetimes will be serialized:
     es.index(index=index_name, id=content_id, document={"text": content, "title": title, "timestamp": datetime.now()})
 
-    if DEBUG_MODE is True:
-      print(es.get(index=index_name, id=content_id)['_source']) 
+    if DEBUG_MODE: print(es.get(index=index_name, id=content_id)['_source']) 
 
 
 
 def create_es_index(index_name:str, mapping:dict):
     es = Elasticsearch(ES_CLUSTER_HOST)
-    es.indices.create(index=index_name, body=mapping)
+    try:
+      es.indices.create(index=index_name, body=mapping)
+    except BadRequestError as error:
+      if 'resource_already_exists_exception' in error.body:
+          return
 
 
 def obtain_ids_from_index(index_name:str):
@@ -88,14 +93,14 @@ def obtain_ids_from_index(index_name:str):
     return ids
 
 
-def get_total_index_token_count(index_name:str=DEFAULT_ES_INDEX):
+def get_total_index_token_count(index_name:str=DEFAULT_ES_INDEX, 
+sort_response:bool=False, desc_order:bool=False):
     es = Elasticsearch(ES_CLUSTER_HOST)
     ids = obtain_ids_from_index(index_name)
     response = es.mtermvectors(index=DEFAULT_ES_INDEX,
                                    term_statistics=True, 
                                    fields=['text'], 
                                    ids=ids)
-    #print(response)
     global_dict = {}
     for doc_wordcount in response['docs']:
           tokens = doc_wordcount['term_vectors']['text']['terms']
@@ -105,12 +110,21 @@ def get_total_index_token_count(index_name:str=DEFAULT_ES_INDEX):
                   global_dict[token] = tokens[token]['term_freq']
                 else:
                   global_dict[token] += tokens[token]['term_freq']
-    return global_dict
+
+    desc_order = True if desc_order else False
+    return {k: v for k, v in sorted(global_dict.items(), key=lambda item: item[1], reverse=desc_order)} if sort_response else global_dict
 
 
 
 
 if __name__ == "__main__":
-    #create_es_index(index_name=DEFAULT_ES_INDEX, mapping=DEFAULT_INDEX_MAPPING)
-    #load_n_wikipedia_articles(index_name=DEFAULT_ES_INDEX)
-    print(get_total_index_token_count())
+    create_es_index(index_name=DEFAULT_ES_INDEX, mapping=DEFAULT_INDEX_MAPPING)
+    load_n_wikipedia_articles(index_name=DEFAULT_ES_INDEX)
+    parser = argparse.ArgumentParser(description='Wordcount using ES local cluster')
+    #parser.add_argument('--sort', action="store", dest='sort_wordcount', default=False)
+    #parser.add_argument('--desc', action="store", dest='desc', default=False)
+    parser.add_argument('--sort', action=argparse.BooleanOptionalAction)
+    parser.add_argument('--desc', action=argparse.BooleanOptionalAction)
+    args = parser.parse_args()
+    print(args.desc)
+    print(get_total_index_token_count(sort_response=args.sort, desc_order=args.desc))
